@@ -49,6 +49,30 @@ def graf_dispersion(df, valores_x, valores_y):
     ax.set_title('Gráfico de dispersión entre ' + valores_x + ' y ' + valores_y)
     plt.show()
 
+
+#Función para gráficos de dispersión comparando entre series
+def graf_dispersion_comparativa(df, locations, x_var, y_var):
+    plt.figure(figsize=(10, 6))  # Define el tamaño de la figura
+
+    # Bucle para cada localización
+    for loc in locations:
+        # Filtrar los datos
+        subset = df[df['Location'] == loc]
+        
+        # Convertir la columna de fecha si es necesario
+        if pd.api.types.is_string_dtype(subset[x_var]):
+            subset[x_var] = pd.to_datetime(subset[x_var])
+
+        # Graficar
+        plt.scatter(subset[x_var], subset[y_var], label=loc)
+
+    # Decorar el gráfico
+    plt.xlabel(x_var)
+    plt.ylabel(y_var)
+    plt.title(f'Dispersión de {y_var} en diferentes localizaciones')
+    plt.legend()
+    plt.show()
+
 #Función para gráficos de bigotes, 0 para un diseño compacto, 1 para un diseño más detallado
 def bigote(df,columna,diseño=0):
     if diseño==0:
