@@ -50,9 +50,9 @@ def graf_dispersion(df, valores_x, valores_y):
     plt.show()
 
 
-#Función para gráficos de dispersión comparando entre series
-def graf_dispersion_comparativa(df, locations, x_var, y_var):
-    plt.figure(figsize=(10, 6))  # Define el tamaño de la figura
+# Función para gráficos de dispersión comparando entre series
+def graf_dispersion_comparativa(df, locations, x_var, y_var, marker_size=10):
+    plt.figure(figsize=(10, 3))  # Define el tamaño de la figura
 
     # Bucle para cada localización
     for loc in locations:
@@ -64,7 +64,7 @@ def graf_dispersion_comparativa(df, locations, x_var, y_var):
             subset[x_var] = pd.to_datetime(subset[x_var])
 
         # Graficar
-        plt.scatter(subset[x_var], subset[y_var], label=loc)
+        plt.scatter(subset[x_var], subset[y_var], label=loc, s=marker_size)
 
     # Decorar el gráfico
     plt.xlabel(x_var)
@@ -220,3 +220,30 @@ def analisis_geo_nan(df, var, dist_matrix, cities_coords):
     complete_info = nan_count_df.merge(closest_city_and_distance, how='left', left_on='Location', right_index=True)
 
     return complete_info
+
+def procesar_geo_nan(df, dist_matrix, cities_coords, distance_threshold=100):
+    excluded_columns = ['Date', 'Location']
+    non_boolean_columns = df.select_dtypes(exclude=[bool]).columns.difference(excluded_columns)
+
+    print("Procesando las siguientes columnas:", non_boolean_columns)
+    print("El rango fijado para ciudades cercanas es (km):",distance_threshold)
+    for variable in non_boolean_columns:
+        print(f"Analizando la variable: {variable}")
+        geo_analysis = analisis_geo_nan(df, variable, dist_matrix, cities_coords)
+        print("Resultado del análisis geográfico:\n", geo_analysis)
+
+        for index, row in geo_analysis.iterrows():
+            location = row['Location']
+            closest_city = row['Nearest City']
+            distance = row['Distance (km)']
+
+            if pd.notnull(distance) and 0 < float(distance) < distance_threshold:
+                print(f"Procesando la localidad: {location}")
+                print(f"La ciudad más cercana a {location} es {closest_city} a {distance} km.")
+                df = recrear_geo_nan(df, location, closest_city, variable)
+            else:
+                print(f"No se encontró ciudad cercana en el rango deseado para {location}")
+
+    remaining_nans = df.isna().sum().sort_values(ascending=False)
+    print("NaN restantes después del procesamiento:\n", remaining_nans)
+    return df
