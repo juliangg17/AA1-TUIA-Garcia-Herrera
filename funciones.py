@@ -116,3 +116,83 @@ def recrear_nan(df, columna_nan, columna_correlacionada):
 
     # Asignar los valores predichos a los valores NaN en la variable columna_nan usando los índices de df_nan
     df.loc[df_nan.index, columna_nan] = predicted_values.flatten()
+
+def recrear_geo_nan(df, loc_nan, loc_data, var):
+    """
+    Reemplaza los valores NaN para una variable específica en una localidad, utilizando los valores
+    de la misma variable en otra localidad para el mismo día, y cuenta cuántos días únicos fueron usados para reemplazar esos NaN.
+
+    Parámetros:
+    df (DataFrame): El DataFrame que contiene los datos.
+    loc_nan (str): Nombre de la localidad que tiene valores NaN que deben ser reemplazados.
+    loc_data (str): Nombre de la localidad de donde se tomarán los valores para reemplazar.
+    var (str): Nombre de la variable para la cual se reemplazarán los NaN.
+
+    Retorna:
+    DataFrame: DataFrame con los valores NaN reemplazados donde fue posible.
+    """
+    # Crear copia del DataFrame para evitar modificar el original
+    df_copy = df.copy()
+
+    # Datos de la localidad con datos disponibles
+    data_values = df_copy[(df_copy['Location'] == loc_data) & df_copy[var].notnull()][['Date', var]]
+
+    # Renombrar la columna de valores para evitar conflictos durante el merge
+    data_values.rename(columns={var: f'{var}_replacement'}, inplace=True)
+
+    # Datos de la localidad con NaNs
+    nan_values = df_copy[(df_copy['Location'] == loc_nan) & df_copy[var].isnull()][['Date']]
+
+    # Merge left para combinar los datos
+    df_merged = pd.merge(df_copy, data_values, on='Date', how='left')
+
+    # Condición para reemplazar NaNs
+    condition = (df_merged['Location'] == loc_nan) & (df_merged[var].isnull())
+
+    # Contar días únicos donde se reemplazan valores
+    days_used_for_replacement = pd.merge(nan_values, data_values, on='Date', how='inner')['Date'].nunique()
+
+    # Reemplazo de los NaN
+    df_merged.loc[condition, var] = df_merged.loc[condition, f'{var}_replacement']
+
+    # Eliminar la columna de reemplazo
+    df_merged.drop(columns=[f'{var}_replacement'], inplace=True)
+
+    print(f"La cantidad de datos reemplazados fue {days_used_for_replacement}")
+    return df_merged
+
+def analisis_geo_nan(df, var, dist_matrix, cities_coords):
+    """
+    Analiza la distribución de valores NaN para una variable específica en distintas ciudades
+    y encuentra la ciudad más cercana para cada una de ellas junto con la distancia.
+
+    Parámetros:
+    df (DataFrame): DataFrame de donde se extraerán los datos.
+    var (str): Variable para la cual se contarán los NaNs.
+    dist_matrix (DataFrame): Matriz de distancias entre ciudades.
+    cities_coords (dict): Diccionario de coordenadas de las ciudades.
+
+    Retorna:
+    DataFrame: Información combinada que incluye conteo de NaNs, ciudad más cercana y distancia.
+    """
+    # DataFrame para almacenar la ciudad más cercana y la distancia
+    closest_city_and_distance = pd.DataFrame(index=cities_coords.keys(), columns=['Nearest City', 'Distance (km)'])
+
+    # Encontrar la ciudad más cercana y la distancia para cada una
+    for city in dist_matrix.columns:
+        closest_city = dist_matrix[city].drop(city).idxmin()
+        closest_distance = dist_matrix.at[city, closest_city]
+        closest_city_and_distance.at[city, 'Nearest City'] = closest_city
+        closest_city_and_distance.at[city, 'Distance (km)'] = closest_distance
+
+    # Contar NaN en la variable específica y agrupar por ciudad
+    nan_count_per_city = df[df[var].isna()]['Location'].value_counts()
+
+    # Convertir la serie en un DataFrame
+    nan_count_df = nan_count_per_city.reset_index()
+    nan_count_df.columns = ['Location', f'{var} NaN Count']
+
+    # Unir nan_count_df con closest_city_and_distance, manteniendo nan_count_df como el DataFrame principal
+    complete_info = nan_count_df.merge(closest_city_and_distance, how='left', left_on='Location', right_index=True)
+
+    return complete_info
