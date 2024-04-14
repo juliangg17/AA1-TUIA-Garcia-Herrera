@@ -2,6 +2,7 @@ import seaborn as sns
 import matplotlib.pyplot as plt
 import pandas as pd
 import numpy as np
+from sklearn.linear_model import LinearRegression
 
 #Función para la matriz de correlación de Pearson
 def matriz_corr(df):
@@ -95,3 +96,23 @@ def analisis_nan(df):
                                                   'Valores_NaN': [valores_nan]})], ignore_index=True)
 
     return df_nan
+
+def recrear_nan(df, columna_nan, columna_correlacionada):
+    # Crear un DataFrame sin los valores NaN de las columnas involucradas
+    df_no_nan = df.dropna(subset=[columna_nan, columna_correlacionada])
+
+    # Crear un modelo de regresión lineal
+    model = LinearRegression()
+
+    # Ajustar el modelo con los datos existentes
+    model.fit(df_no_nan[columna_correlacionada].values.reshape(-1, 1), df_no_nan[columna_nan].values.reshape(-1, 1))
+
+    # Obtener los valores NaN de la variable columna_nan
+    # Asegura además que no haya NaN en el predictor
+    df_nan = df[df[columna_nan].isnull() & df[columna_correlacionada].notnull()]
+
+    # Predecir los valores NaN utilizando el modelo de regresión lineal
+    predicted_values = model.predict(df_nan[columna_correlacionada].values.reshape(-1, 1))
+
+    # Asignar los valores predichos a los valores NaN en la variable columna_nan usando los índices de df_nan
+    df.loc[df_nan.index, columna_nan] = predicted_values.flatten()
