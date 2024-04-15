@@ -247,3 +247,22 @@ def procesar_geo_nan(df, dist_matrix, cities_coords, distance_threshold=100):
     remaining_nans = df.isna().sum().sort_values(ascending=False)
     print("NaN restantes después del procesamiento:\n", remaining_nans)
     return df
+
+def comparar_datos(df, ciudad1, ciudad2, variable):
+    # Filtrar los datos para la primera ciudad donde la variable no es NaN.
+    ciudad1_data = df[(df['Location'] == ciudad1) & df[variable].notna()]
+
+    # Extraer las fechas donde la primera ciudad tiene datos de la variable
+    ciudad1_dates = ciudad1_data['Date']
+
+    # Filtrar los datos para la segunda ciudad en las mismas fechas.
+    ciudad2_data = df[(df['Location'] == ciudad2) & df['Date'].isin(ciudad1_dates)]
+
+    # Unir los datos de ambas ciudades basándonos en las fechas.
+    comparison_data = pd.merge(ciudad1_data, ciudad2_data, on='Date', suffixes=(f'_{ciudad1}', f'_{ciudad2}'))
+
+    # Calcular la correlación para la variable especificada
+    correlation = comparison_data[f'{variable}_{ciudad1}'].corr(comparison_data[f'{variable}_{ciudad2}'])
+
+    # Imprimir resultados
+    print(f"Correlación entre {ciudad1} y {ciudad2} para {variable}: {correlation}")
