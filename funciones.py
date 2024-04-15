@@ -141,13 +141,33 @@ def recrear_nan(df, columna_nan, columna_correlacionada):
     # Asignar los valores predichos a los valores NaN en la variable columna_nan usando los índices de df_nan
     df.loc[df_nan.index, columna_nan] = predicted_values.flatten()
 
-def recrear_geo_nan(df, loc_nan, loc_data, var):
+def comparar_datos(df, ciudad1, ciudad2, variable):
+    # Filtrar los datos para la primera ciudad donde la variable no es NaN.
+    ciudad1_data = df[(df['Location'] == ciudad1) & df[variable].notna()]
+
+    # Extraer las fechas donde la primera ciudad tiene datos de la variable
+    ciudad1_dates = ciudad1_data['Date']
+
+    # Filtrar los datos para la segunda ciudad en las mismas fechas.
+    ciudad2_data = df[(df['Location'] == ciudad2) & df['Date'].isin(ciudad1_dates)]
+
+    # Unir los datos de ambas ciudades basándonos en las fechas.
+    comparison_data = pd.merge(ciudad1_data, ciudad2_data, on='Date', suffixes=(f'_{ciudad1}', f'_{ciudad2}'))
+
+    # Calcular la correlación para la variable especificada
+    correlation = comparison_data[f'{variable}_{ciudad1}'].corr(comparison_data[f'{variable}_{ciudad2}'])
+
+    # Imprimir resultados
+    print(f"Correlación entre {ciudad1} y {ciudad2} para {variable}: {correlation}")
+
+def recrear_geo_nan(df, df_data, loc_nan, loc_data, var):
     """
     Reemplaza los valores NaN para una variable específica en una localidad, utilizando los valores
     de la misma variable en otra localidad para el mismo día, y cuenta cuántos días únicos fueron usados para reemplazar esos NaN.
 
     Parámetros:
-    df (DataFrame): El DataFrame que contiene los datos.
+    df (DataFrame): El DataFrame que contiene los datos de la localidad con valores NaN.
+    df_data (DataFrame): El DataFrame que contiene los datos de la localidad de donde se tomarán los valores para reemplazar.
     loc_nan (str): Nombre de la localidad que tiene valores NaN que deben ser reemplazados.
     loc_data (str): Nombre de la localidad de donde se tomarán los valores para reemplazar.
     var (str): Nombre de la variable para la cual se reemplazarán los NaN.
@@ -158,16 +178,16 @@ def recrear_geo_nan(df, loc_nan, loc_data, var):
     # Crear copia del DataFrame para evitar modificar el original
     df_copy = df.copy()
 
-    # Datos de la localidad con datos disponibles
-    data_values = df_copy[(df_copy['Location'] == loc_data) & df_copy[var].notnull()][['Date', var]]
+    # Datos de la localidad con datos disponibles en df_data
+    data_values = df_data[(df_data['Location'] == loc_data) & df_data[var].notnull()][['Date', var]]
 
     # Renombrar la columna de valores para evitar conflictos durante el merge
     data_values.rename(columns={var: f'{var}_replacement'}, inplace=True)
 
-    # Datos de la localidad con NaNs
+    # Datos de la localidad con NaNs en df
     nan_values = df_copy[(df_copy['Location'] == loc_nan) & df_copy[var].isnull()][['Date']]
 
-    # Merge left para combinar los datos
+    # Merge left para combinar los datos de df con los valores de df_data
     df_merged = pd.merge(df_copy, data_values, on='Date', how='left')
 
     # Condición para reemplazar NaNs
@@ -221,48 +241,58 @@ def analisis_geo_nan(df, var, dist_matrix, cities_coords):
 
     return complete_info
 
-def procesar_geo_nan(df, dist_matrix, cities_coords, distance_threshold=100):
-    excluded_columns = ['Date', 'Location']
-    non_boolean_columns = df.select_dtypes(exclude=[bool]).columns.difference(excluded_columns)
+def procesar_geo_nan(df, df_data, dist_matrix, cities_coords, distance_threshold=100):
+    """
+    Procesa los NaN en 'df' utilizando los valores de 'df_data' basándose en la proximidad geográfica definida
+    por 'dist_matrix' y 'cities_coords', con un umbral de distancia especificado.
 
-    print("Procesando las siguientes columnas:", non_boolean_columns)
-    print("El rango fijado para ciudades cercanas es (km):",distance_threshold)
-    for variable in non_boolean_columns:
+    Parámetros:
+    df (DataFrame): DataFrame con datos que incluyen NaNs que necesitan ser procesados.
+    df_data (DataFrame): DataFrame de donde se tomarán los datos para reemplazar los NaNs.
+    dist_matrix (DataFrame): DataFrame que contiene las distancias entre localidades.
+    cities_coords (dict): Diccionario con las coordenadas de las localidades.
+    distance_threshold (int, opcional): Distancia máxima en km para considerar una ciudad cercana.
+
+    Retorna:
+    DataFrame: DataFrame con los valores NaN procesados.
+    """
+    excluded_columns = ['Date', 'Location','RainTomorrow','RainfallTomorrow']
+    included_columns = [col for col in df.columns if col not in excluded_columns]
+
+    print("Procesando las siguientes columnas:", included_columns)
+    print("El rango fijado para ciudades cercanas es (km):", distance_threshold)
+    for variable in included_columns:
         print(f"Analizando la variable: {variable}")
         geo_analysis = analisis_geo_nan(df, variable, dist_matrix, cities_coords)
         print("Resultado del análisis geográfico:\n", geo_analysis)
 
         for index, row in geo_analysis.iterrows():
             location = row['Location']
-            closest_city = row['Nearest City']
-            distance = row['Distance (km)']
+            if pd.isnull(row['Distance (km)']):
+                continue
+            # Ordenar ciudades por distancia, manteniendo solo las dentro del umbral
+            possible_cities = dist_matrix[location].sort_values()
+            possible_cities = possible_cities[(possible_cities > 0) & (possible_cities <= distance_threshold)]
 
-            if pd.notnull(distance) and 0 < float(distance) < distance_threshold:
-                print(f"Procesando la localidad: {location}")
-                print(f"La ciudad más cercana a {location} es {closest_city} a {distance} km.")
-                df = recrear_geo_nan(df, location, closest_city, variable)
-            else:
-                print(f"No se encontró ciudad cercana en el rango deseado para {location}")
+            for closest_city, distance in possible_cities.items():
+                if pd.notnull(distance):
+                    print(f"Procesando la localidad: {location}")
+                    print(f"Intentando con la ciudad más cercana {closest_city} a {distance} km.")
+                    df = recrear_geo_nan(df, df_data, location, closest_city, variable)
+                    if not df[df['Location'] == location][variable].isna().any():
+                        print(f"Todos los NaNs fueron reemplazados para {location} en la variable {variable}.")
+                        break
+                else:
+                    print(f"No se encontró ciudad cercana adecuada para {location}")
 
     remaining_nans = df.isna().sum().sort_values(ascending=False)
     print("NaN restantes después del procesamiento:\n", remaining_nans)
+
+    # Crear una copia del DataFrame sin las columnas 'RainfallTomorrow' y 'RainTomorrow'
+    df_filtered = df.drop(columns=excluded_columns)
+
+    # Contar filas que contienen al menos un valor NaN en el DataFrame filtrado
+    nan_rows_count_filtered = df_filtered.isna().any(axis=1).sum()
+    print(f'Número de filas con al menos un valor NaN: {nan_rows_count_filtered}')
+    
     return df
-
-def comparar_datos(df, ciudad1, ciudad2, variable):
-    # Filtrar los datos para la primera ciudad donde la variable no es NaN.
-    ciudad1_data = df[(df['Location'] == ciudad1) & df[variable].notna()]
-
-    # Extraer las fechas donde la primera ciudad tiene datos de la variable
-    ciudad1_dates = ciudad1_data['Date']
-
-    # Filtrar los datos para la segunda ciudad en las mismas fechas.
-    ciudad2_data = df[(df['Location'] == ciudad2) & df['Date'].isin(ciudad1_dates)]
-
-    # Unir los datos de ambas ciudades basándonos en las fechas.
-    comparison_data = pd.merge(ciudad1_data, ciudad2_data, on='Date', suffixes=(f'_{ciudad1}', f'_{ciudad2}'))
-
-    # Calcular la correlación para la variable especificada
-    correlation = comparison_data[f'{variable}_{ciudad1}'].corr(comparison_data[f'{variable}_{ciudad2}'])
-
-    # Imprimir resultados
-    print(f"Correlación entre {ciudad1} y {ciudad2} para {variable}: {correlation}")
