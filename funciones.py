@@ -3,6 +3,7 @@ import matplotlib.pyplot as plt
 import pandas as pd
 import numpy as np
 from sklearn.linear_model import LinearRegression
+from tqdm import tqdm  # Importa la clase tqdm para la barra de progreso
 
 #Función para la matriz de correlación de Pearson
 def matriz_corr(df):
@@ -362,8 +363,9 @@ def gradient_descent(X_train, y_train, X_test, y_test, lr=0.01, epochs=100):
 
     return W
 
-def stochastic_gradient_descent(X_train, y_train, X_test, y_test, lr=0.01, epochs=100):
+from tqdm import tqdm  # Importa la clase tqdm para la barra de progreso
 
+def stochastic_gradient_descent(X_train, y_train, X_test, y_test, lr=0.01, epochs=100):
     n = X_train.shape[0]
     m = X_train.shape[1]
 
@@ -375,24 +377,24 @@ def stochastic_gradient_descent(X_train, y_train, X_test, y_test, lr=0.01, epoch
     train_errors = []
     test_errors = []
 
-    for i in range(epochs):
+    # Agregamos tqdm al bucle de épocas para monitorear el progreso
+    for epoch in tqdm(range(epochs), desc='Training Epochs', unit='epoch'):
         # Permutación aleatoria de los datos
         permutation = np.random.permutation(n)
-        X_train = X_train[permutation]
-        y_train = y_train[permutation]
+        X_train_permuted = X_train[permutation]
+        y_train_permuted = y_train[permutation]
 
-        for j in range(n):
-            # Obtener una muestra aleatoria de un solo dato para hacer SGD
-            x_sample = X_train[j]
-            y_sample = y_train[j][0]
+        # Uso de tqdm en el bucle interno para ver el progreso de cada iteración de muestra
+        for j in tqdm(range(n), desc=f'Epoch {epoch+1}', leave=False):
+            x_sample = X_train_permuted[j]
+            y_sample = y_train_permuted[j]
 
             prediction = np.matmul(x_sample, W)
             error = y_sample - prediction
             train_mse = error ** 2
             train_errors.append(train_mse)
 
-            gradient = -2 * error * x_sample.T.reshape(-1, 1)
-
+            gradient = -2 * error * x_sample.reshape(-1, 1)
             W = W - (lr * gradient)
 
             prediction_test = np.matmul(X_test, W)
@@ -423,25 +425,27 @@ def mini_batch_gradient_descent(X_train, y_train, X_test, y_test, lr=0.01, epoch
     train_errors = []
     test_errors = []
 
-    for i in range(epochs):
-        
+    # Barra de progreso para las épocas
+    for i in tqdm(range(epochs), desc='Training Epochs', unit='epoch'):
         # Permutación aleatoria de los datos
         permutation = np.random.permutation(n)
-        X_train = X_train[permutation]
-        y_train = y_train[permutation]
+        X_train_permuted = X_train[permutation]
+        y_train_permuted = y_train[permutation]
 
-
-        for j in range(0, n, batch_size):
-            # Obtener un lote (mini-batch) de datos
-            x_batch = X_train[j:j+batch_size, :]
-            y_batch = y_train[j:j+batch_size].reshape(-1, 1)
+        # Barra de progreso para los mini-lotes dentro de cada época
+        batch_iter = range(0, n, batch_size)
+        for j in tqdm(batch_iter, desc=f'Epoch {i+1}', leave=False):
+            # Asegurarse de no sobrepasar el tamaño de la muestra
+            end_index = min(j + batch_size, n)
+            x_batch = X_train_permuted[j:end_index, :]
+            y_batch = y_train_permuted[j:end_index].reshape(-1, 1)
 
             prediction = np.matmul(x_batch, W)
             error = y_batch - prediction
             train_mse = np.mean(error ** 2)
             train_errors.append(train_mse)
 
-            gradient = -2 * np.matmul(x_batch.T, error) / batch_size
+            gradient = -2 * np.matmul(x_batch.T, error) / x_batch.shape[0]  # Usamos x_batch.shape[0] para lidiar con el último lote
 
             W = W - (lr * gradient)
 
