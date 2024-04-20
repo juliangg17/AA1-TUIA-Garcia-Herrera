@@ -7,7 +7,8 @@ from tqdm import tqdm  # Importa la clase tqdm para la barra de progreso
 
 #Función para la matriz de correlación de Pearson
 def matriz_corr(df):
-    sns.heatmap(df.corr(numeric_only=True), annot=True, cmap='Blues', annot_kws={"size": 6})
+    plt.figure(figsize=(12, 8))  # Modifica los valores de ancho y alto según tus necesidades
+    sns.heatmap(df.corr(numeric_only=True), annot=True, cmap='Blues', annot_kws={"size": 8})
     plt.title("Matriz de correlación")
 
 #Función para realizar gráficos de línea
@@ -99,7 +100,7 @@ def explorar(df):
     columnas_numericas = df.select_dtypes(include='number').columns
     # Iterar sobre cada columna numérica y llamar a la función bigote
     for columna in columnas_numericas:
-        bigote(df,columna)
+        histograma(df,columna)
     matriz_corr(df)
 
 #Función para ver NaN de un df y su posibilidad de tratamiento
@@ -298,6 +299,10 @@ def procesar_geo_nan(df, df_data, dist_matrix, cities_coords, distance_threshold
     
     return df
 
+import numpy as np
+import matplotlib.pyplot as plt
+from sklearn.metrics import mean_squared_error, r2_score
+
 def gradient_descent(X_train, y_train, X_test, y_test, lr=0.01, epochs=100):
     """
     shapes:
@@ -327,15 +332,14 @@ def gradient_descent(X_train, y_train, X_test, y_test, lr=0.01, epochs=100):
         # Calcular predicción y error de entrenamiento
         prediction_train = np.matmul(X_train, W) 
         error_train = y_train - prediction_train  
-        #print(error_train)
-        train_mse = np.mean(error_train ** 2)
-        train_errors.append(train_mse)
+        train_rmse = np.sqrt(np.mean(error_train ** 2))  # Calcular RMSE
+        train_errors.append(train_rmse)
 
         # Calcular predicción y error de prueba
         prediction_test = np.matmul(X_test, W) 
         error_test = y_test - prediction_test 
-        test_mse = np.mean(error_test ** 2)
-        test_errors.append(test_mse)
+        test_rmse = np.sqrt(np.mean(error_test ** 2))  # Calcular RMSE
+        test_errors.append(test_rmse)
 
         # Calcular el gradiente y actualizar pesos
         grad_sum = np.sum(error_train * X_train, axis=0)
@@ -344,24 +348,29 @@ def gradient_descent(X_train, y_train, X_test, y_test, lr=0.01, epochs=100):
 
         W = W - (lr * gradient)
 
+    # Calcular las predicciones finales para entrenamiento y prueba
+    prediction_train_final = np.matmul(X_train, W)
+    prediction_test_final = np.matmul(X_test, W)
+
+    # Calcular RMSE final para entrenamiento y prueba
+    final_train_rmse = np.sqrt(mean_squared_error(y_train, prediction_train_final))
+    final_test_rmse = np.sqrt(mean_squared_error(y_test, prediction_test_final))
+
+    # Calcular R^2 final para entrenamiento y prueba
+    final_train_r2 = r2_score(y_train, prediction_train_final)
+    final_test_r2 = r2_score(y_test, prediction_test_final)
+
     # Graficar errores de entrenamiento y prueba
-    # Definir una figura
     plt.figure(figsize=(12, 6))
-    # Plotear errores de entrenamiento
     plt.plot(train_errors, label='Error de entrenamiento')
-    # Plotear errores de prueba
     plt.plot(test_errors, label='Error de test')
-    # Poner labels en los ejes
     plt.xlabel('Época')
-    plt.ylabel('Error cuadrático medio')
-    # Activar la leyenda
+    plt.ylabel('Error RMSE')
     plt.legend()
-    # Poner titulo
-    plt.title('Error de entrenamiento y prueba vs iteraciones (GD)')
-    # Terminar y mostrar gráfico
+    plt.title('RMSE de entrenamiento y prueba vs iteraciones (GD)')
     plt.show()
 
-    return W
+    return {'test_rmse': final_test_rmse, 'test_r2': final_test_r2, 'train_rmse': final_train_rmse, 'train_r2': final_train_r2, 'predictores': W}
 
 from tqdm import tqdm  # Importa la clase tqdm para la barra de progreso
 
@@ -390,28 +399,40 @@ def stochastic_gradient_descent(X_train, y_train, X_test, y_test, lr=0.01, epoch
             y_sample = y_train_permuted[j]
 
             prediction = np.matmul(x_sample, W)
-            error = y_sample - prediction
-            train_mse = error ** 2
-            train_errors.append(train_mse)
+            error_train = y_sample - prediction
+            train_rmse = np.sqrt(np.mean(error_train ** 2))  # Calcular RMSE
+            train_errors.append(train_rmse)
 
-            gradient = -2 * error * x_sample.reshape(-1, 1)
+            gradient = -2 * error_train * x_sample.reshape(-1, 1)
             W = W - (lr * gradient)
 
             prediction_test = np.matmul(X_test, W)
             error_test = y_test - prediction_test
-            test_mse = np.mean(error_test ** 2)
-            test_errors.append(test_mse)
+            test_rmse = np.sqrt(np.mean(error_test ** 2))
+            test_errors.append(test_rmse)
 
+    # Calcular las predicciones finales para entrenamiento y prueba
+    prediction_train_final = np.matmul(X_train, W)
+    prediction_test_final = np.matmul(X_test, W)
+
+    # Calcular RMSE final para entrenamiento y prueba
+    final_train_rmse = np.sqrt(mean_squared_error(y_train, prediction_train_final))
+    final_test_rmse = np.sqrt(mean_squared_error(y_test, prediction_test_final))
+
+    # Calcular R^2 final para entrenamiento y prueba
+    final_train_r2 = r2_score(y_train, prediction_train_final)
+    final_test_r2 = r2_score(y_test, prediction_test_final)
+    
     plt.figure(figsize=(12, 6))
     plt.plot(train_errors, label='Error de entrenamiento')
     plt.plot(test_errors, label='Error de prueba')
     plt.xlabel('Iteración')
-    plt.ylabel('Error cuadrático medio')
+    plt.ylabel('RMSE')
     plt.legend()
-    plt.title('Error de entrenamiento y prueba vs iteraciones (SGD)')
+    plt.title('RMSE de entrenamiento y prueba vs iteraciones (SGD)')
     plt.show()
 
-    return W
+    return {'test_rmse': final_test_rmse, 'test_r2': final_test_r2, 'train_rmse': final_train_rmse, 'train_r2': final_train_r2, 'predictores': W}
 
 def mini_batch_gradient_descent(X_train, y_train, X_test, y_test, lr=0.01, epochs=100, batch_size=11):
     n = X_train.shape[0]
@@ -441,26 +462,112 @@ def mini_batch_gradient_descent(X_train, y_train, X_test, y_test, lr=0.01, epoch
             y_batch = y_train_permuted[j:end_index].reshape(-1, 1)
 
             prediction = np.matmul(x_batch, W)
-            error = y_batch - prediction
-            train_mse = np.mean(error ** 2)
-            train_errors.append(train_mse)
+            error_train = y_batch - prediction
+            train_rmse = np.sqrt(np.mean(error_train ** 2))  # Calcular RMSE
+            train_errors.append(train_rmse)
 
-            gradient = -2 * np.matmul(x_batch.T, error) / x_batch.shape[0]  # Usamos x_batch.shape[0] para lidiar con el último lote
+            gradient = -2 * np.matmul(x_batch.T, error_train) / x_batch.shape[0]  # Usamos x_batch.shape[0] para lidiar con el último lote
 
             W = W - (lr * gradient)
 
             prediction_test = np.matmul(X_test, W)
             error_test = y_test - prediction_test
-            test_mse = np.mean(error_test ** 2)
-            test_errors.append(test_mse)
+            test_rmse = np.sqrt(np.mean(error_test ** 2))
+            test_errors.append(test_rmse)
 
+    # Calcular las predicciones finales para entrenamiento y prueba
+    prediction_train_final = np.matmul(X_train, W)
+    prediction_test_final = np.matmul(X_test, W)
+
+    # Calcular RMSE final para entrenamiento y prueba
+    final_train_rmse = np.sqrt(mean_squared_error(y_train, prediction_train_final))
+    final_test_rmse = np.sqrt(mean_squared_error(y_test, prediction_test_final))
+
+    # Calcular R^2 final para entrenamiento y prueba
+    final_train_r2 = r2_score(y_train, prediction_train_final)
+    final_test_r2 = r2_score(y_test, prediction_test_final)
+    
     plt.figure(figsize=(12, 6))
     plt.plot(train_errors, label='Error de entrenamiento')
     plt.plot(test_errors, label='Error de prueba')
     plt.xlabel('Iteración')
-    plt.ylabel('Error cuadrático medio')
+    plt.ylabel('RMSE')
     plt.legend()
-    plt.title('Error de entrenamiento y prueba vs iteraciones (Mini-Batch GD)')
+    plt.title('RMSE de entrenamiento y prueba vs iteraciones (Mini-Batch GD)')
     plt.show()
 
-    return W
+    return {'test_rmse': final_test_rmse, 'test_r2': final_test_r2, 'train_rmse': final_train_rmse, 'train_r2': final_train_r2, 'predictores': W}
+
+import seaborn as sns
+import matplotlib.pyplot as plt
+
+def histograma(data, columna, estilo='darkgrid', facecolor='#1E1E1E', gridcolor='#2C2F33', textcolor='white', edgecolor='gray'):
+    # Configuración del estilo de los gráficos
+    sns.set(style=estilo)
+    plt.rcParams['axes.facecolor'] = facecolor
+    plt.rcParams['figure.facecolor'] = facecolor
+    plt.rcParams['grid.color'] = gridcolor
+    plt.rcParams['text.color'] = textcolor
+    plt.rcParams['axes.labelcolor'] = textcolor
+    plt.rcParams['xtick.color'] = textcolor
+    plt.rcParams['ytick.color'] = textcolor
+    plt.rcParams['axes.edgecolor'] = edgecolor
+
+    # Crear un displot con un mapa de densidad de kernel (KDE)
+    g = sns.displot(x=columna, data=data, palette='Set2', kind='kde', height=5, aspect=1.5, color="#007ACC")
+
+    # Calcular estadísticas relevantes
+    min_val = data[columna].min()
+    max_val = data[columna].max()
+    mean_val = data[columna].mean()
+    std_dev = data[columna].std()
+    cuartiles = data[columna].quantile([0.25, 0.5, 0.75])
+    iqr = cuartiles[0.75] - cuartiles[0.25]
+    lower_bound_iqr = cuartiles[0.25] - 1.5 * iqr
+    upper_bound_iqr = cuartiles[0.75] + 1.5 * iqr
+
+    # 3σ limits
+    lower_bound_3std = mean_val - 3 * std_dev
+    upper_bound_3std = mean_val + 3 * std_dev
+
+    # Select more permissive bounds
+    lower_bound = lower_bound_3std
+    upper_bound = upper_bound_3std
+
+    # Determine the method used
+    method_used = "IQR" if (lower_bound == lower_bound_iqr and upper_bound == upper_bound_iqr) else "3σ"
+
+    # Plot lines for the bounds
+    plt.axvline(x=lower_bound, color='salmon', linestyle='--', linewidth=2)
+    plt.axvline(x=upper_bound, color='salmon', linestyle='--', linewidth=2)
+    plt.text(lower_bound, plt.gca().get_ylim()[1], f'Lower Bound ({method_used})', color='salmon', ha='right', va='top', rotation=90)
+    plt.text(upper_bound, plt.gca().get_ylim()[1], f'Upper Bound ({method_used})', color='salmon', ha='left', va='top', rotation=90)
+
+    # Plot line for the mean
+    plt.axvline(x=mean_val, color="#007ACC", linestyle='-', linewidth=2)
+    plt.text(mean_val + 0.1 * std_dev, plt.gca().get_ylim()[1] / 2, f'Mean: {mean_val:.2f}', color="#007ACC", ha='left', rotation=90)
+
+    # Título del gráfico elevado para evitar superposición
+    plt.gcf().suptitle(f'Histograma de {columna}', color=textcolor, y=1.05)  # Elevamos y ajustamos el color del título
+
+    # Agregar líneas verticales y texto para los cuartiles con etiquetas Q1, Q2, Q3
+    quartile_labels = ['Q1', 'Q2', 'Q3']
+    for q, label in zip(cuartiles.index, quartile_labels):
+        value = cuartiles[q]
+        plt.axvline(x=value, color='#ffffff', linestyle='-', linewidth=1)
+        plt.text(value, plt.gca().get_ylim()[1]*1.05, f'{label}', color='#ffffff', ha='center', va='top', rotation=0)
+
+    # Añadir un cuadro de texto para resumir estadísticas
+    stats_text = (f'Mean: {mean_val:.2f}\n'
+                  f'Std Dev: {std_dev:.2f}\n'
+                  f'Min: {min_val:.2f}\n'
+                  f'Max: {max_val:.2f}\n'
+                  f'Q1\n'
+                  f'Q2 (Median)\n'
+                  f'Q3\n'
+                  f'Lower Bound ({method_used}): {lower_bound:.2f}\n'
+                  f'Upper Bound ({method_used}): {upper_bound:.2f}')
+    plt.gcf().text(0.95, 0.5, stats_text, fontsize=10, color=textcolor, ha='left', va='center')
+
+    # Muestra el gráfico
+    plt.show()
