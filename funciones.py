@@ -4,6 +4,10 @@ import pandas as pd
 import numpy as np
 from sklearn.linear_model import LinearRegression
 from tqdm import tqdm  # Importa la clase tqdm para la barra de progreso
+from sklearn.metrics import roc_curve, roc_auc_score
+from sklearn.metrics import confusion_matrix
+from sklearn.metrics import precision_score, f1_score, recall_score
+
 
 #Función para la matriz de correlación de Pearson
 def matriz_corr(df):
@@ -571,3 +575,55 @@ def histograma(data, columna, estilo='darkgrid', facecolor='#1E1E1E', gridcolor=
 
     # Muestra el gráfico
     plt.show()
+
+def ROC(models, X_test, y_test, labels):
+    plt.figure(figsize=(8, 6))
+
+    for model, label in zip(models, labels):
+        # Obtener las probabilidades de predicción para la clase positiva
+        y_pred_proba = model.predict_proba(X_test)[:, 1]
+        
+        # Calcular la curva ROC
+        fpr, tpr, _ = roc_curve(y_test, y_pred_proba)
+        
+        # Calcular el área bajo la curva ROC (AUC)
+        auc = roc_auc_score(y_test, y_pred_proba)
+        
+        # Graficar la curva ROC
+        plt.plot(fpr, tpr, lw=2, label=f'{label} (AUC = {auc:.2f})')
+
+    # Configurar la gráfica
+    plt.plot([0, 1], [0, 1], color='gray', linestyle='--')
+    plt.xlim([0.0, 1.0])
+    plt.ylim([0.0, 1.05])
+    plt.xlabel('FPR')
+    plt.ylabel('TPR')
+    plt.title('Curva ROC')
+    plt.legend(loc="lower right")
+    plt.show()
+
+    return plt
+
+def matriz_conf (y_test,y_pred):
+    plt.figure(figsize=(2, 1.7))
+    sns.heatmap(confusion_matrix(y_pred, y_test), annot=True, cmap="Blues", fmt="d", xticklabels=["No llueve", "Llueve"], yticklabels=["No llueve", "Llueve"]).set(title='Matriz de Confusión', xlabel='Valores reales', ylabel='Valores predichos')
+    return plt.show()
+
+def logreg_metrics (y_test,y_pred):
+    precision = precision_score(y_test, y_pred)
+    print('precision:',precision)
+    tpr = recall_score(y_test, y_pred)
+    print('TPR:',tpr)
+    f1 = f1_score(y_test, y_pred)
+    print('f1:',f1)
+    specificity = specificity_score(y_test, y_pred)
+    print('specificity',specificity)
+    return precision, tpr, f1, specificity
+
+# Se crean las funciones adicionales que no están dentro del paquete de sklearn
+def specificity_score(y_test, y_pred):
+    tn, fp, fn, tp = confusion_matrix(y_test, y_pred).ravel()
+    return tn / (tn + fp)
+
+def FPR_score(y_test, y_pred):
+    return 1-specificity_score(y_test, y_pred)
