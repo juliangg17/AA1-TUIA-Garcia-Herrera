@@ -379,66 +379,6 @@ def gradient_descent(X_train, y_train, X_test, y_test, lr=0.01, epochs=100):
 
 from tqdm import tqdm  # Importa la clase tqdm para la barra de progreso
 
-def Estochastic_gradient_descent(X_train, y_train, X_test, y_test, lr=0.01, epochs=100):
-    n = X_train.shape[0]
-    m = X_train.shape[1]
-
-    X_train = np.hstack((np.ones((n, 1)), X_train))
-    X_test = np.hstack((np.ones((X_test.shape[0], 1)), X_test))
-
-    W = np.random.randn(m + 1).reshape(-1, 1)
-
-    train_errors = []
-    test_errors = []
-
-    # Agregamos tqdm al bucle de épocas para monitorear el progreso
-    for epoch in tqdm(range(epochs), desc='Training Epochs', unit='epoch'):
-        # Permutación aleatoria de los datos
-        permutation = np.random.permutation(n)
-        X_train_permuted = X_train[permutation]
-        y_train_permuted = y_train[permutation]
-
-        # Uso de tqdm en el bucle interno para ver el progreso de cada iteración de muestra
-        for j in tqdm(range(n), desc=f'Epoch {epoch+1}', leave=False):
-            x_sample = X_train_permuted[j]
-            y_sample = y_train_permuted[j]
-
-            prediction = np.matmul(x_sample, W)
-            error_train = y_sample - prediction
-            train_rmse = np.sqrt(np.mean(error_train ** 2))  # Calcular RMSE
-            train_errors.append(train_rmse)
-
-            gradient = -2 * error_train * x_sample.reshape(-1, 1)
-            W = W - (lr * gradient)
-
-            prediction_test = np.matmul(X_test, W)
-            error_test = y_test - prediction_test
-            test_rmse = np.sqrt(np.mean(error_test ** 2))
-            test_errors.append(test_rmse)
-
-    # Calcular las predicciones finales para entrenamiento y prueba
-    prediction_train_final = np.matmul(X_train, W)
-    prediction_test_final = np.matmul(X_test, W)
-
-    # Calcular RMSE final para entrenamiento y prueba
-    final_train_rmse = np.sqrt(mean_squared_error(y_train, prediction_train_final))
-    final_test_rmse = np.sqrt(mean_squared_error(y_test, prediction_test_final))
-
-    # Calcular R^2 final para entrenamiento y prueba
-    final_train_r2 = r2_score(y_train, prediction_train_final)
-    final_test_r2 = r2_score(y_test, prediction_test_final)
-    
-    plt.figure(figsize=(12, 6))
-    plt.plot(train_errors, label='Error de entrenamiento')
-    plt.plot(test_errors, label='Error de prueba')
-    plt.xlabel('Iteración')
-    plt.ylabel('RMSE')
-    plt.legend()
-    plt.title('RMSE de entrenamiento y prueba vs iteraciones (SGD)')
-    plt.show()
-
-    return {'test_rmse': final_test_rmse, 'test_r2': final_test_r2, 'train_rmse': final_train_rmse, 'train_r2': final_train_r2, 'predictores': W}
-
 def update_weights(x_sample, y_sample, W, lr):
     prediction = np.dot(x_sample, W)
     error_train = y_sample - prediction
