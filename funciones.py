@@ -394,7 +394,6 @@ def stochastic_gradient_descent(X_train, y_train, X_test, y_test, lr=0.01, epoch
     X_test = np.hstack((np.ones((X_test.shape[0], 1)), X_test))
 
     W = np.random.randn(m + 1).reshape(-1, 1)
-
     train_errors = []
     test_errors = []
 
