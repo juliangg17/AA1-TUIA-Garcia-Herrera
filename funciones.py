@@ -7,8 +7,28 @@ from tqdm import tqdm  # Importa la clase tqdm para la barra de progreso
 from sklearn.metrics import roc_curve, roc_auc_score
 from sklearn.metrics import confusion_matrix
 from sklearn.metrics import precision_score, f1_score, recall_score
+from sklearn.base import BaseEstimator, ClassifierMixin
+from sklearn.base import BaseEstimator, RegressorMixin
 import tensorflow as tf
+import joblib
 from joblib import Parallel, delayed
+import random
+import optuna
+import tensorflow as tf
+from tensorflow.keras.datasets import mnist
+from tensorflow.keras.models import Sequential
+from tensorflow.keras.models import load_model
+from tensorflow.keras.layers import Flatten, Dense
+from tensorflow.keras.utils import to_categorical
+from tensorflow.keras.optimizers import Adam
+from tensorflow.keras.metrics import Recall
+from tensorflow.keras.layers import Dropout
+from tensorflow.keras.regularizers import l2
+from keras.losses import MeanSquaredError, BinaryCrossentropy
+from keras.metrics import MeanSquaredError as MSE
+from geopy.distance import geodesic
+
+
 
 #Función para la matriz de correlación de Pearson
 def matriz_corr(df):
@@ -209,7 +229,7 @@ def recrear_geo_nan(df, df_data, loc_nan, loc_data, var):
     # Eliminar la columna de reemplazo
     df_merged.drop(columns=[f'{var}_replacement'], inplace=True)
 
-    print(f"La cantidad de datos reemplazados fue {days_used_for_replacement}")
+    #print(f"La cantidad de datos reemplazados fue {days_used_for_replacement}")  #comentado para producción
     return df_merged
 
 def analisis_geo_nan(df, var, dist_matrix, cities_coords):
@@ -712,3 +732,343 @@ def recall_min(y_true, y_pred):
     recalls = tf.map_fn(class_recall, unique_labels, dtype=tf.float32)
     min_recall = tf.reduce_min(recalls)
     return min_recall
+
+def calcular_componentes_viento(df, columna):
+    # Diccionario con las direcciones del viento y sus correspondientes ángulos
+    direcciones = {
+        'N': 0, 'NNE': 22.5, 'NE': 45, 'ENE': 67.5,
+        'E': 90, 'ESE': 112.5, 'SE': 135, 'SSE': 157.5,
+        'S': 180, 'SSW': 202.5, 'SW': 225, 'WSW': 247.5,
+        'W': 270, 'WNW': 292.5, 'NW': 315, 'NNW': 337.5
+    }
+    # Convertir las direcciones a ángulos en radianes
+    df[f'Ángulo_{columna}'] = df[columna].map(direcciones) * (np.pi / 180)
+
+    # Calcular el seno y el coseno y anteponer el nombre de la columna a 'seno' y 'coseno'
+    df[f'{columna}_sen'] = np.sin(df[f'Ángulo_{columna}'])
+    df[f'{columna}_cos'] = np.cos(df[f'Ángulo_{columna}'])
+
+    # Eliminar la columna de ángulo y la columna original, ya que no se necesita más
+    df.drop(columns=[f'Ángulo_{columna}', columna], inplace=True)
+    # Retornar el DataFrame con las nuevas columnas de seno y coseno
+    return df
+
+def calcular_componentes_fecha(df, columna_fecha):
+    # Convertir la columna a formato de fecha si aún no lo está
+    df[columna_fecha] = pd.to_datetime(df[columna_fecha])
+    
+    # Calcular el día del año para cada fecha
+    df['Día del año'] = df[columna_fecha].dt.dayofyear
+    
+    # Asumiendo que cada año tiene 360 días para el cálculo de ángulos
+    # Calcular el ángulo correspondiente para cada fecha
+    df[f'Ángulo_{columna_fecha}'] = (df['Día del año'] / 360) * 360
+    
+    # Calcular el seno y el coseno para cada ángulo
+    # Convertir ángulos a radianes
+    radianes = np.deg2rad(df[f'Ángulo_{columna_fecha}'])
+    df[f'{columna_fecha}_sen'] = np.sin(radianes)
+    df[f'{columna_fecha}_cos'] = np.cos(radianes)
+    
+    # Eliminar las columnas intermedias y la columna de fecha original si no la necesita más
+    df.drop(columns=['Día del año', f'Ángulo_{columna_fecha}'], inplace=True)
+    
+    # Devolver solo las columnas de seno y coseno
+    return df
+
+def split(df_train, df_test,metodo='regresion'):
+    if metodo == 'regresion':
+        #Conjuntos de datos para entrenamiento
+        X_train = df_train.drop(['Date', 'Location', 'RainTomorrow', 'RainfallTomorrow'], axis=1)
+        y_train = df_train[['RainfallTomorrow']]
+
+        #Conjuntos de datos para testeo
+        X_test = df_test.drop(['Date', 'Location', 'RainTomorrow', 'RainfallTomorrow'], axis=1)
+        y_test = df_test[['RainfallTomorrow']]
+
+    elif metodo == 'clasificacion':
+        #Conjuntos de datos para entrenamiento
+        X_train = df_train.drop(['Date', 'Location', 'RainTomorrow', 'RainfallTomorrow'], axis=1)
+        y_train = df_train[['RainTomorrow']]
+        y_train = y_train.astype(float)
+
+        #Conjuntos de datos para testeo
+        X_test = df_test.drop(['Date', 'Location', 'RainTomorrow', 'RainfallTomorrow'], axis=1)
+        y_test = df_test[['RainTomorrow']]
+        y_test = y_test.astype(float)
+    return X_train, y_train, X_test, y_test
+
+def split_x_y(df_train,metodo='regresion'):
+    if metodo == 'regresion':
+        #Conjuntos de datos para entrenamiento
+        X_train = df_train.drop(['Date', 'Location', 'RainTomorrow', 'RainfallTomorrow'], axis=1)
+        y_train = df_train[['RainfallTomorrow']]
+
+    elif metodo == 'clasificacion':
+        #Conjuntos de datos para entrenamiento
+        X_train = df_train.drop(['Date', 'Location', 'RainTomorrow', 'RainfallTomorrow'], axis=1)
+        y_train = df_train[['RainTomorrow']]
+        y_train = y_train.astype(float)
+
+    return X_train, y_train
+
+# Función para la fijación de la semilla
+def set_seed(seed=50):
+    np.random.seed(seed)
+    random.seed(seed)
+    tf.random.set_seed(seed)
+
+def nn_clas(): 
+    hp = {
+        'num_layers': 3,
+        'n_units_layer_0': 74,
+        'dropout_rate_layer_0': 0.5465375217813033,
+        'n_units_layer_1': 52,
+        'dropout_rate_layer_1': 0.5862658535211897,
+        'n_units_layer_2': 46,
+        'dropout_rate_layer_2': 0.536641154105469
+    }
+
+    # Crear el modelo
+    model = Sequential()
+    model.add(Dense(hp['n_units_layer_0'], activation='relu'))
+    model.add(Dropout(hp['dropout_rate_layer_0']))
+
+    model.add(Dense(hp['n_units_layer_1'], activation='relu'))
+    model.add(Dropout(hp['dropout_rate_layer_1']))
+
+    model.add(Dense(hp['n_units_layer_2'], activation='relu'))
+    model.add(Dropout(hp['dropout_rate_layer_2']))
+
+    model.add(Dense(1, activation='sigmoid'))
+
+    # Compilar el modelo
+    model.compile(optimizer='adam', loss=BinaryCrossentropy(), metrics=[recall_min])
+    return model
+
+def nn_reg(): 
+    hp = {
+        'num_layers': 1,
+        'n_units_layer_0': 94,
+        'dropout_rate_layer_0': 0.5876030445884783
+    }
+
+    # Crear el modelo
+    model = Sequential()
+    model.add(Dense(hp['n_units_layer_0'], activation='relu'))
+    model.add(Dropout(hp['dropout_rate_layer_0']))
+
+    model.add(Dense(1, activation='linear'))
+
+    # Compilar el modelo
+    model.compile(optimizer='adam', loss=MeanSquaredError(), metrics=[MSE()])
+    return model
+
+def procesar_geo_nan_plain(df, df_data, distance_threshold=100):
+    # Coordenadas de las ciudades
+    cities_coords_9 = {
+        'Adelaide': (-34.9285, 138.6007),
+        'Canberra': (-35.2809, 149.1300),
+        'Cobar': (-31.4983, 145.8344),
+        'Dartmoor': (-37.9225, 141.2760),
+        'Melbourne': (-37.8136, 144.9631),
+        'MelbourneAirport': (-37.6690, 144.8410),
+        'MountGambier': (-37.8284, 140.7804),
+        'Sydney': (-33.8688, 151.2093),
+        'SydneyAirport': (-33.9399, 151.1753)
+    }
+
+    cities_coords = {
+        'Adelaide': (-34.9285, 138.6007),
+        'Albany': (-35.0228, 117.8814),
+        'AliceSprings': (-23.6980, 133.8807),
+        'Albury': (-36.0737, 146.9135),
+        'BadgerysCreek': (-33.8817, 150.7440),
+        'Ballarat': (-37.5622, 143.8503),
+        'Bendigo': (-36.7570, 144.2784),
+        'Brisbane': (-27.4698, 153.0251),
+        'Cairns': (-16.9186, 145.7781),
+        'Canberra': (-35.2809, 149.1300),
+        'Cobar': (-31.4983, 145.8344),
+        'CoffsHarbour': (-30.2963, 153.1157),
+        'Darwin': (-12.4634, 130.8456),
+        'Dartmoor': (-37.9225, 141.2760),
+        'GoldCoast': (-28.0167, 153.4000),
+        'Hobart': (-42.8821, 147.3272),
+        'Katherine': (-14.4646, 132.2635),
+        'Launceston': (-41.4341, 147.1374),
+        'Melbourne': (-37.8136, 144.9631),
+        'MelbourneAirport': (-37.6690, 144.8410),
+        'Mildura': (-34.1847, 142.1625),
+        'Moree': (-29.4658, 149.8407),
+        'MountGambier': (-37.8284, 140.7804),
+        'MountGinini': (-35.5294, 148.7744),
+        'Newcastle': (-32.9272, 151.7765),
+        'Nhil': (-36.3348, 141.6503),
+        'NorahHead': (-33.2821, 151.5671),
+        'NorfolkIsland': (-29.0408, 167.9547),
+        'Nuriootpa': (-34.4694, 138.9939),
+        'Penrith': (-33.7511, 150.6942),
+        'Perth': (-31.9505, 115.8605),
+        'PerthAirport': (-31.9403, 115.9672),
+        'PearceRAAF': (-31.6736, 116.0174),
+        'Portland': (-38.3463, 141.6042),
+        'Richmond': (-33.5995, 150.7391),
+        'Sale': (-38.1118, 147.0680),
+        'SalmonGums': (-32.9815, 121.6438),
+        'Sydney': (-33.8688, 151.2093),
+        'SydneyAirport': (-33.9399, 151.1753),
+        'Townsville': (-19.2580, 146.8169),
+        'Tuggeranong': (-35.4244, 149.0888),
+        'Uluru': (-25.3455, 131.0369),
+        'WaggaWagga': (-35.1082, 147.3598),
+        'Walpole': (-34.9777, 116.7338),
+        'Watsonia': (-37.7110, 145.0830),
+        'Williamtown': (-32.8150, 151.8428),
+        'Witchcliffe': (-34.0261, 115.1003),
+        'Wollongong': (-34.4278, 150.8931),
+        'Woomera': (-31.1994, 136.8253)
+    }
+    # Crear un DataFrame vacío
+    dist_matrix = pd.DataFrame(index=cities_coords.keys(), columns=cities_coords.keys())
+    # Calcular las distancias y llenar la matriz
+    for city1 in cities_coords:
+        for city2 in cities_coords:
+            dist = geodesic(cities_coords[city1], cities_coords[city2]).kilometers
+            dist_matrix.at[city1, city2] = round(dist, 2)
+
+    excluded_columns = ['Date', 'Location','RainTomorrow','RainfallTomorrow']
+    included_columns = [col for col in df.columns if col not in excluded_columns]
+
+    for variable in included_columns:
+        geo_analysis = analisis_geo_nan(df, variable, dist_matrix, cities_coords)
+
+        for index, row in geo_analysis.iterrows():
+            location = row['Location']
+            if pd.isnull(row['Distance (km)']):
+                continue
+            # Ordenar ciudades por distancia, manteniendo solo las dentro del umbral
+            possible_cities = dist_matrix[location].sort_values()
+            possible_cities = possible_cities[(possible_cities > 0) & (possible_cities <= distance_threshold)]
+
+            for closest_city, distance in possible_cities.items():
+                if pd.notnull(distance):
+                    df = recrear_geo_nan(df, df_data, location, closest_city, variable)
+                    if not df[df['Location'] == location][variable].isna().any():
+                        break
+
+    remaining_nans = df.isna().sum().sort_values(ascending=False)
+
+    # Crear una copia del DataFrame sin las columnas 'RainfallTomorrow' y 'RainTomorrow'
+    df_filtered = df.drop(columns=excluded_columns)
+
+    # Contar filas que contienen al menos un valor NaN en el DataFrame filtrado
+    nan_rows_count_filtered = df_filtered.isna().any(axis=1).sum()
+    
+    return df
+
+def impute(df,df_49):
+    df = df.drop(columns=['MinTemp'])
+    df = df.drop(columns=['MaxTemp'])
+    df = df[df['Rainfall'] < df['Rainfall'].quantile(0.99)]
+    df = df[df['Evaporation'] < df['Evaporation'].quantile(0.99)]
+    df = procesar_geo_nan_plain(df, df_49, 350)
+    df = recrear_geo_nan(df,df_49,'Cobar','SydneyAirport','Sunshine')
+    df = df.dropna()
+    return df
+
+def data_split(df):
+    df = df.sort_values('Date')
+    index_at_80_percent = int(len(df) * 0.8) # Calcular el índice que corresponde al 80% del DataFrame
+    date_at_80_percent = df.iloc[index_at_80_percent]['Date'] # Usar el índice para obtener la fecha en ese punto
+    df_train = df[df['Date'] <= date_at_80_percent]
+    df_test = df[df['Date'] > date_at_80_percent]
+    return df_train, df_test
+
+def feature_eng(df):
+    if 'Unnamed: 0' in df.columns:
+        df = df.drop('Unnamed: 0', axis=1)
+    df['RainToday'] = pd.to_numeric(df['RainToday'].replace({'Yes': 1, 'No': 0}), errors='coerce').astype('boolean')
+    if 'RainTomorrow' in df.columns:
+        df['RainTomorrow'] = pd.to_numeric(df['RainTomorrow'].replace({'Yes': 1, 'No': 0}), errors='coerce').astype('boolean')
+    df = calcular_componentes_viento(df, 'WindGustDir')
+    df = calcular_componentes_viento(df, 'WindDir9am')
+    df = calcular_componentes_viento(df, 'WindDir3pm')
+    df = calcular_componentes_fecha(df, 'Date')
+    df['DTemp'] = df['Temp3pm'] - df['Temp9am']
+    df['DPressure'] = df['Pressure3pm'] - df['Pressure9am']
+    df['DHumidity'] = df['Humidity3pm'] - df['Humidity9am']
+    df['DWindSpeed'] = df['WindSpeed3pm'] - df['WindSpeed9am']
+    return df
+
+#SOURCE DATA PREPARATION
+def source_data_preparation(df):
+    df=feature_eng(df)
+    df_49=df
+    allowed_locations = ['Adelaide', 'Canberra', 'Cobar', 'Dartmoor', 'Melbourne', 'MelbourneAirport', 'MountGambier', 'Sydney', 'SydneyAirport']
+    df = df[df['Location'].isin(allowed_locations)]
+    return df, df_49
+
+#INPUT DATA PREPARATION
+def input_data_preparation(df):
+    df=feature_eng(df)
+    allowed_locations = ['Adelaide', 'Canberra', 'Cobar', 'Dartmoor', 'Melbourne', 'MelbourneAirport', 'MountGambier', 'Sydney', 'SydneyAirport']
+    df = df[df['Location'].isin(allowed_locations)]
+    df = df.drop(columns=['MinTemp'])
+    df = df.drop(columns=['MaxTemp'])
+    df = df.drop(['Date', 'Location', 'RainTomorrow', 'RainfallTomorrow'], axis=1)
+    return df
+
+class NNClassifier(BaseEstimator, ClassifierMixin):
+    def __init__(self, build_fn):
+        self.build_fn = build_fn
+    
+    def fit(self, X, y):
+        self.model_ = self.build_fn()
+        self.model_.fit(X, y, epochs=69, batch_size=2048, verbose=0)
+        return self
+    
+    def predict(self, X):
+        y_pred = self.model_.predict(X)
+        return (y_pred > 0.448).astype("int32")
+
+    def predict_proba(self, X):
+        return self.model_.predict(X)
+    
+    def get_model(self):
+        return self.model_
+    
+    def set_model(self, model):
+        self.model_ = model
+    
+class NNRegressor(BaseEstimator, RegressorMixin):
+    def __init__(self, build_fn, epochs=74, batch_size=444, verbose=0):
+        self.build_fn = build_fn
+        self.epochs = epochs
+        self.batch_size = batch_size
+        self.verbose = verbose
+    
+    def fit(self, X, y):
+        self.model_ = self.build_fn()
+        self.model_.fit(X, y, epochs=self.epochs, batch_size=self.batch_size, verbose=self.verbose)
+        return self
+    
+    def predict(self, X):
+        return self.model_.predict(X).flatten()
+
+    def predict_proba(self, X):
+        return self.model_.predict(X)
+    
+    def get_model(self):
+        return self.model_
+    
+    def set_model(self, model):
+        self.model_ = model
+
+def load_pipeline_and_model(root_path, pipeline_name, keras_model_name, step_name):
+    pipeline_path = f'{root_path}{pipeline_name}'
+    keras_model_path = f'{root_path}{keras_model_name}'
+    pipeline = joblib.load(pipeline_path)
+    model = load_model(keras_model_path)
+    pipeline.named_steps[step_name].set_model(model)
+    return pipeline
